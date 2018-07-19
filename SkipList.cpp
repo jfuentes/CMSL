@@ -40,9 +40,6 @@ using namespace std;
 
 using namespace std;
 unsigned int infinity = 1 << INFINITY_SHIFT;
-int removeStamp(int value) {
-  return ((value << STAMP_SIZE) >> STAMP_SIZE);
-}
 
 void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex idxNewNodes, unsigned int start, unsigned int end);
 void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, unsigned int start, unsigned int end);
@@ -65,7 +62,7 @@ bool loadFromFile(uint32_t * data, string filename, int numKeys) {
 void generateRandomKeys(int numKeys, string filename) {
   std::random_device rd;     // only used once to initialise (seed) engine
   std::mt19937 rng(rd());    // random-number engine used (Mersenne-Twister in this case)
-  std::uniform_int_distribution<unsigned int> uni(1, 10000000); // guaranteed unbiased
+  std::uniform_int_distribution<unsigned int> uni(1, 100000000); // guaranteed unbiased
 
   ofstream outputFile;
   outputFile.open(filename);
@@ -545,10 +542,11 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 
 int main(int argc, char * argv[])
 {
-  int numKeys = 10000;
+  int numKeys = 1000000;
   int numThreads = 1;
-  string keysFilename("100k_keys.txt");
+  string keysFilename("1m_keys.txt");
   string skiplistFilename("skiplist_100k_p50.txt");
+  //generateRandomKeys(numKeys, keysFilename);
   insertTest(numKeys, numThreads, keysFilename);
   //searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
 }
