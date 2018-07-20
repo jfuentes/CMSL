@@ -243,7 +243,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
   cm_result_check(newListsBuf->WriteSurface((const unsigned char*)&newLists, nullptr));
 
 
-  cm_result_check(kernel->SetThreadCount(numThreads));
+  //cm_result_check(kernel->SetThreadCount(numThreads));
 
   SurfaceIndex *index0 = nullptr;
   SurfaceIndex *index1 = nullptr;
@@ -260,6 +260,10 @@ void insertTest(int numKeys, int numThreads, string filename) {
 
   //device->InitPrintBuffer();
 
+  // Creates a thread space
+  CmThreadSpace *thread_space = nullptr;
+  cm_result_check(device->CreateThreadSpace(numThreads, 1, thread_space));
+
   // Create a task queue
   CmQueue* pCmQueue = NULL;
   cm_result_check(device->CreateQueue(pCmQueue));
@@ -272,7 +276,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
   unsigned long timeout = -1;
 
   CmEvent* e = NULL;
-  cm_result_check(pCmQueue->Enqueue(pKernelArray, e));
+  cm_result_check(pCmQueue->Enqueue(pKernelArray, e, thread_space));
   cm_result_check(e->WaitForTaskFinished(timeout));
   clock_t end = clock(); // end timer
 
@@ -292,6 +296,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
   dumpSkiplist(dst_skiplist);
   //cm_result_check(::DestroyCmDevice(device));
   //device->FlushPrintBuffer();
+  cm_result_check(device->DestroyThreadSpace(thread_space));
   cm_result_check(::DestroyCmDevice(device));
 
 #if 1
@@ -321,7 +326,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
   cm_result_check(device2->CreateBuffer(numThreads*sizeof(unsigned int), readsBuf));
   cm_result_check(readsBuf->WriteSurface((const unsigned char*)dst_reads, nullptr));
 
-  cm_result_check(kernel_search->SetThreadCount(numThreads));
+  //cm_result_check(kernel_search->SetThreadCount(numThreads));
 
   SurfaceIndex *index0_search = nullptr;
   SurfaceIndex *index1_search = nullptr;
@@ -336,6 +341,8 @@ void insertTest(int numKeys, int numThreads, string filename) {
   //device->InitPrintBuffer();
 
   // Create a task queue
+  CmThreadSpace *thread_space2 = nullptr;
+  cm_result_check(device2->CreateThreadSpace(numThreads, 1, thread_space2));
   CmQueue* pCmQueue2 = nullptr;
   cm_result_check(device2->CreateQueue(pCmQueue2));
   CmTask *task_search = nullptr;
@@ -346,7 +353,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
 
   start = clock();
   CmEvent* e2 = nullptr;
-  cm_result_check(pCmQueue2->Enqueue(task_search, e2));
+  cm_result_check(pCmQueue2->Enqueue(task_search, e2, thread_space2));
   cm_result_check(e2->WaitForTaskFinished(timeout));
   end = clock(); // end timer
 
@@ -365,7 +372,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
 
 
   cm_result_check(device2->DestroyTask(task_search));
-
+  cm_result_check(device2->DestroyThreadSpace(thread_space2));
   //device2->FlushPrintBuffer();
   cm_result_check(::DestroyCmDevice(device2));
 
@@ -479,13 +486,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
   cm_result_check(kernel->SetKernelArg(1, sizeof(SurfaceIndex), index1));
   cm_result_check(kernel->SetKernelArg(2, sizeof(SurfaceIndex), index2));
   unsigned data_chunk = (numKeys) / numThreads;
-
-  for (unsigned i = 0; i < numThreads; i++) {
-    unsigned start = data_chunk * i;
-    unsigned end = data_chunk * i + data_chunk;
-    cm_result_check(kernel->SetThreadArg(i, 3, sizeof(start), &start));
-    cm_result_check(kernel->SetThreadArg(i, 4, sizeof(end), &end));
-  }
+  cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
 
   device->InitPrintBuffer();
 
