@@ -254,17 +254,11 @@ void insertTest(int numKeys, int numThreads, string filename) {
   cm_result_check(kernel->SetKernelArg(0, sizeof(SurfaceIndex), index0));
   cm_result_check(kernel->SetKernelArg(1, sizeof(SurfaceIndex), index1));
   cm_result_check(kernel->SetKernelArg(2, sizeof(SurfaceIndex), index2));
-
   unsigned data_chunk = (numKeys) / numThreads;
+  cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
 
-  for (unsigned i = 0; i < numThreads; i++) {
-    unsigned start = data_chunk * i;
-    unsigned end = data_chunk * i + data_chunk -1;
-    cm_result_check(kernel->SetThreadArg(i, 3, sizeof(start), &start));
-    cm_result_check(kernel->SetThreadArg(i, 4, sizeof(end), &end));
-  }
 
-  device->InitPrintBuffer();
+  //device->InitPrintBuffer();
 
   // Create a task queue
   CmQueue* pCmQueue = NULL;
@@ -297,7 +291,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
 
   dumpSkiplist(dst_skiplist);
   //cm_result_check(::DestroyCmDevice(device));
-  device->FlushPrintBuffer();
+  //device->FlushPrintBuffer();
   cm_result_check(::DestroyCmDevice(device));
 
 #if 1
@@ -338,12 +332,7 @@ void insertTest(int numKeys, int numThreads, string filename) {
   cm_result_check(kernel_search->SetKernelArg(0, sizeof(SurfaceIndex), index0_search));
   cm_result_check(kernel_search->SetKernelArg(1, sizeof(SurfaceIndex), index1_search));
   cm_result_check(kernel_search->SetKernelArg(2, sizeof(SurfaceIndex), index2_search));
-  for (unsigned i = 0; i < numThreads; i++) {
-    unsigned start = data_chunk * i;
-    unsigned end = data_chunk * i + data_chunk - 1;
-    cm_result_check(kernel_search->SetThreadArg(i, 3, sizeof(start), &start));
-    cm_result_check(kernel_search->SetThreadArg(i, 4, sizeof(end), &end));
-  }
+  cm_result_check(kernel_search->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
   //device->InitPrintBuffer();
 
   // Create a task queue
@@ -543,7 +532,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 int main(int argc, char * argv[])
 {
   int numKeys = 1000000;
-  int numThreads = 1;
+  int numThreads = 250;
   string keysFilename("1m_keys.txt");
   string skiplistFilename("skiplist_100k_p50.txt");
   //generateRandomKeys(numKeys, keysFilename);

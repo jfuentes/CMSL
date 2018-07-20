@@ -547,12 +547,15 @@ next_chunk_links:
 }
 
 
-_GENX_MAIN_ void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex idxNewNodes, uint start, uint end) {
+_GENX_MAIN_ void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex idxNewNodes, uint data_chunk) {
   vector<uint, 32> ret;
-  uint totalKeys = end - start + 1;
+  
   uint keys = 0, insertedKeys = 0, last = 0;
-  //unsigned short thread_id = get_thread_origin_x();
-  //printf("thread %d from %d to %d\n", thread_id, start, end);
+  unsigned short thread_id = get_thread_origin_x();
+
+  unsigned start = data_chunk * thread_id;
+  unsigned end = data_chunk * thread_id + data_chunk - 1;
+  uint totalKeys = end - start + 1;
   for (uint i = start; i < end; i += 32) {
     read(DWALIGNED(data), i * 4, ret);
     for (uint j = 0; j < 32 && keys < totalKeys; j++, keys++) {
@@ -569,12 +572,16 @@ _GENX_MAIN_ void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, S
   }
 }
 
-_GENX_MAIN_ void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex reads, uint start, uint end) {
+_GENX_MAIN_ void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex reads, uint data_chunk) {
   vector<uint, 32> ret;
-  uint totalKeys = end - start + 1;
+
   uint keys = 0;
   vector<uint, 1> foundKeys = 0;
-  ushort thread_id = get_thread_origin_x();
+  unsigned short thread_id = get_thread_origin_x();
+
+  unsigned start = data_chunk * thread_id;
+  unsigned end = data_chunk * thread_id + data_chunk - 1;
+  uint totalKeys = end - start + 1;
   for (uint i = start; i < end; i += 32) {
     read(DWALIGNED(data), i * 4, ret);
     for (uint j = 0; j < 32 && keys < totalKeys; j++, keys++) {
