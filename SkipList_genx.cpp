@@ -175,7 +175,61 @@ restart:
   return false;
 }
 
+/**
+*
+* Searches for a key in the Skip List.
+*
+**/
+_GENX_ bool searchSIMD(SurfaceIndex skiplist, uint key) {
+  vector<uint, LIST_SZ> currentList;
+  vector<uint, CHUNK_SZ> linksChunk, keysChunk, followingOffsets, src1;
+  vector<ushort, ECHUNK_SZ> linksMask, keysMask;
+  vector<uint, ECHUNK_SZ> followingKeys, keys;
+  uint nextChunkLinks, nextChunkKeys, currentOffset = 0, rightPos;
 
+restart:
+  read(skiplist, currentOffset * 4, currentList);
+  nextChunkKeys = currentList[CHUNK_SZ + NEXT_CHUNK];
+  linksChunk = currentList.select<CHUNK_SZ, 1>(FIRST_LINK);
+  followingOffsets.select<ECHUNK_SZ, 1>(0) = currentList.select<ECHUNK_SZ, 1>(FIRST_LINK);
+  linksMask = (followingOffsets.select<ECHUNK_SZ, 1>(0) == INFINITY | followingOffsets.select<ECHUNK_SZ, 1>(0) == 0);
+
+  read(skiplist, 0, (followingOffsets + FIRST_KEY), src1); // read min key of every following lists
+  src1.select<ECHUNK_SZ, 1>(0).merge(0, linksMask);
+
+  followingKeys.select<ECHUNK_SZ, 1>(0) = src1.select<ECHUNK_SZ, 1>(0);
+  linksMask = (key >= followingKeys) & (followingKeys != 0);
+  SIMD_IF_BEGIN(linksMask.any()) {
+    // follow link
+    rightPos = cm_pack_mask(linksMask);
+    rightPos = WORD_SIZE - 1 - cm_fbh<uint>(rightPos);
+    currentOffset = followingOffsets[rightPos];
+    goto restart;
+  }
+  SIMD_ELSE {
+    // key can be in current list
+    keysChunk = currentList.select<CHUNK_SZ, 1>(FIRST_KEY);
+    keys = currentList.select<ECHUNK_SZ, 1>(FIRST_KEY);
+  next_chunk_keys:
+    keysMask = (keys == key);
+    SIMD_IF_BEGIN (keysMask.any()) {
+      return true; // key found!
+    }
+    SIMD_ELSE {
+      SIMD_IF_BEGIN (nextChunkKeys != 0 && nextChunkKeys % LIST_SZ == 0) {
+        read(skiplist, nextChunkKeys * 4, currentList);
+        SIMD_IF_BEGIN (key >= currentList[0]) { // right pos is in the next chunk continue with next chunk
+          nextChunkKeys = currentList[NEXT_CHUNK];
+          keys = currentList.select<ECHUNK_SZ, 1>(0);
+          keysChunk = currentList.select<CHUNK_SZ, 1>(0);
+          goto next_chunk_keys;
+        }SIMD_IF_END;
+      }SIMD_IF_END;
+
+    }SIMD_IF_END;
+  } SIMD_IF_END;
+  return false;
+}
 
 
 inline _GENX_ void

@@ -474,7 +474,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 
 
 
-  cm_result_check(kernel->SetThreadCount(numThreads));
+  //cm_result_check(kernel->SetThreadCount(numThreads));
 
   SurfaceIndex *index0 = nullptr;
   SurfaceIndex *index1 = nullptr;
@@ -488,7 +488,10 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
   unsigned data_chunk = (numKeys) / numThreads;
   cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
 
-  device->InitPrintBuffer();
+  //device->InitPrintBuffer();
+
+  CmThreadSpace *thread_space = nullptr;
+  cm_result_check(device->CreateThreadSpace(numThreads, 1, thread_space));
 
   // Create a task queue
   CmQueue* pCmQueue = NULL;
@@ -502,7 +505,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
   unsigned long timeout = -1;
 
   CmEvent* e = NULL;
-  cm_result_check(pCmQueue->Enqueue(pKernelArray, e));
+  cm_result_check(pCmQueue->Enqueue(pKernelArray, e, thread_space));
   cm_result_check(e->WaitForTaskFinished(timeout));
   clock_t end = clock(); // end timer
 
@@ -520,8 +523,9 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
     tot += dst_reads[i];
   }
   cout << "Keys found " << tot << endl;
-  device->FlushPrintBuffer();
+  //device->FlushPrintBuffer();
   cm_result_check(device->DestroyTask(pKernelArray));
+  cm_result_check(device->DestroyThreadSpace(thread_space));
   cm_result_check(::DestroyCmDevice(device));
 
 
@@ -533,10 +537,10 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 int main(int argc, char * argv[])
 {
   int numKeys = 1000000;
-  int numThreads = 250;
+  int numThreads = 1000;
   string keysFilename("1m_keys.txt");
-  string skiplistFilename("skiplist_100k_p50.txt");
+  string skiplistFilename("skiplist_1m_p50.txt");
   //generateRandomKeys(numKeys, keysFilename);
-  insertTest(numKeys, numThreads, keysFilename);
-  //searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
+  //insertTest(numKeys, numThreads, keysFilename);
+  searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
 }
