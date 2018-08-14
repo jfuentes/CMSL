@@ -9,7 +9,7 @@
 #define INFINITY_SHIFT 30
 
 // Skiplist parameters
-#define P_VALUE 50 // probability for level's height assignement 
+#define P_VALUE 40 // probability for level's height assignement 
 #define MAX_LEVEL 15
 #define CHUNK_SZ 16
 #define ECHUNK_SZ 15

@@ -44,6 +44,43 @@ unsigned int infinity = 1 << INFINITY_SHIFT;
 void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex idxNewNodes, unsigned int start, unsigned int end);
 void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, unsigned int start, unsigned int end);
 
+
+bool readFile(string filename, std::vector<uint32_t> &buffer) {
+  ifstream file(filename, std::ios::binary);
+  if (!file.good())
+    return false;
+  // This is a bit sl ow, but works
+  uint32_t c = 0;
+  while (!file.eof()) {
+    file.read(reinterpret_cast<char*>(&c), sizeof(uint32_t));
+    buffer.push_back(static_cast<uint32_t>(c));
+  }
+  file.close();
+  return true;
+}
+
+bool writeFile(string filename, uint32_t *buffer, int size) {
+  ofstream file(filename, std::ios::binary);
+  if (!file)
+    return false;
+  for (int i = 0; i < size; i++) {
+    file.write(reinterpret_cast<const char*>(&buffer[i]), sizeof(uint32_t));
+  }
+  file.close();
+  return true;
+}
+
+bool writeFile(string filename, std::vector<uint8_t> &buffer) {
+  ofstream file(filename, std::ios::out, std::ios::binary);
+  if (!file)
+    return false;
+  for (auto it = buffer.begin(); it != buffer.end(); it++) {
+    file.write(reinterpret_cast<const char*>(*it), sizeof(uint8_t));
+  }
+  file.close();
+  return true;
+}
+
 bool loadFromFile(uint32_t * data, string filename, int numKeys) {
   ifstream file(filename);
   if (!file.good())
@@ -62,7 +99,7 @@ bool loadFromFile(uint32_t * data, string filename, int numKeys) {
 void generateRandomKeys(int numKeys, string filename) {
   std::random_device rd;     // only used once to initialise (seed) engine
   std::mt19937 rng(rd());    // random-number engine used (Mersenne-Twister in this case)
-  std::uniform_int_distribution<unsigned int> uni(1, 100000000); // guaranteed unbiased
+  std::uniform_int_distribution<unsigned int> uni(1, 10000000); // guaranteed unbiased
 
   ofstream outputFile;
   outputFile.open(filename);
@@ -153,14 +190,14 @@ void dumpSkiplist(uint32_t * dst_skiplist) {
 
 }
 
-void insertTest(int numKeys, int numThreads, string filename) {
+void insertTest(int numKeys, int numThreads, string filename, string skiplistFilename) {
   uint32_t *dst_skiplist;
   uint32_t *dst_lists;
   uint32_t *dst_reads;
   uint32_t *skiplist;
   uint32_t *data;
   uint32_t *idxNewLists;
-  uint32_t skiplistSize = numKeys * 32; // worst case (very high P_VALUE): 1 list per key
+  uint32_t skiplistSize = numKeys * 17; // worst case (very high P_VALUE): 1 list per key
   cout << "runTest " << numThreads << " " << numKeys << " " << skiplistSize << endl;
 
   skiplist = (uint32_t*)CM_ALIGNED_MALLOC((skiplistSize) * sizeof(uint32_t), 0x1000);
@@ -379,19 +416,9 @@ void insertTest(int numKeys, int numThreads, string filename) {
 
 #endif
 
-#if 0
+#if 1
     // generate output file
-  std::string fn("skiplist_100k_p50.txt");
-  ofstream myfile(fn);
-  if (myfile.is_open())
-  {
-    for (UINT i = 0; i < skiplistSize; i++) {
-      myfile << dst_skiplist[i] << " ";
-    }
-
-    myfile.close();
-  }
-  else printf("Unable to open file\n");
+  writeFile(skiplistFilename, dst_skiplist, skiplistSize);
 #endif
 
   CM_ALIGNED_FREE(skiplist);
@@ -411,7 +438,8 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 
   skiplist = (uint32_t*)CM_ALIGNED_MALLOC(skiplistSize * sizeof(uint32_t), 0x1000);
   memset(skiplist, 0, sizeof(uint32_t) * skiplistSize);
-  if (!loadFromFile(skiplist, skiplistFilename, skiplistSize)) {
+  std::vector<uint32_t> sl_buffer;
+  if (!readFile(skiplistFilename, sl_buffer)) {
     cout << "Error reading skiplist!";
     _exit(0);
   }
@@ -461,8 +489,8 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
     kernel));
 
   CmBuffer*  skiplistBuf = nullptr;
-  cm_result_check(device->CreateBuffer(skiplistSize * sizeof(unsigned int), skiplistBuf));
-  cm_result_check(skiplistBuf->WriteSurface((const unsigned char*)skiplist, nullptr));
+  cm_result_check(device->CreateBuffer(sl_buffer.size() * sizeof(unsigned int), skiplistBuf));
+  cm_result_check(skiplistBuf->WriteSurface((const unsigned char*)sl_buffer.data(), nullptr));
 
   CmBuffer*  dataBuf = nullptr;
   cm_result_check(device->CreateBuffer(numKeys * sizeof(unsigned int), dataBuf));
@@ -488,7 +516,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
   unsigned data_chunk = (numKeys) / numThreads;
   cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
 
-  //device->InitPrintBuffer();
+  device->InitPrintBuffer();
 
   CmThreadSpace *thread_space = nullptr;
   cm_result_check(device->CreateThreadSpace(numThreads, 1, thread_space));
@@ -523,7 +551,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
     tot += dst_reads[i];
   }
   cout << "Keys found " << tot << endl;
-  //device->FlushPrintBuffer();
+  device->FlushPrintBuffer();
   cm_result_check(device->DestroyTask(pKernelArray));
   cm_result_check(device->DestroyThreadSpace(thread_space));
   cm_result_check(::DestroyCmDevice(device));
@@ -536,11 +564,21 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 
 int main(int argc, char * argv[])
 {
-  int numKeys = 1000000;
-  int numThreads = 1000;
-  string keysFilename("1m_keys.txt");
-  string skiplistFilename("skiplist_1m_p50.txt");
+  if (argc != 5) {
+    cout << "Usage: SkiplistSearch [T] [N] [Keys_filename] [SL_filename]" << endl;
+    cout << "       T: number of threads" << endl;
+    cout << "       N: number of keys to search" << endl;
+    cout << "       Keys_filename: file with keys" << endl;
+    cout << "       SL_filename: file with Skiplist structure" << endl;
+    exit(1);
+  }
+
+ 
+  int numThreads = atoi(argv[1]);
+  int numKeys = atoi(argv[2]);
+  string keysFilename(argv[3]);
+  string skiplistFilename(argv[4]);
   //generateRandomKeys(numKeys, keysFilename);
-  //insertTest(numKeys, numThreads, keysFilename);
+  //insertTest(numKeys, numThreads, keysFilename, skiplistFilename);
   searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
 }

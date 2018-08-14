@@ -126,22 +126,21 @@ inline _GENX_ uint allocateNewList(SurfaceIndex idxNewNodes) {
 **/
 _GENX_ bool search(SurfaceIndex skiplist, uint key) {
   vector<uint, LIST_SZ> currentList;
-  vector<uint, CHUNK_SZ> linksChunk, keysChunk, followingOffsets, src1;
-  vector<ushort, ECHUNK_SZ> linksMask, keysMask;
-  vector<uint, ECHUNK_SZ> followingKeys, keys;
-  uint nextChunkLinks, nextChunkKeys, currentOffset = 0, rightPos;
+  vector<uint, CHUNK_SZ> followingOffsets, src1, followingKeys, keys;
+  vector<ushort, CHUNK_SZ> linksMask, keysMask;
+  uint nextChunkKeys, currentOffset = 0, rightPos;
 
 restart:
   read(skiplist, currentOffset * 4, currentList);
   nextChunkKeys = currentList[CHUNK_SZ + NEXT_CHUNK];
-  linksChunk = currentList.select<CHUNK_SZ, 1>(FIRST_LINK);
-  followingOffsets.select<ECHUNK_SZ, 1>(0) = currentList.select<ECHUNK_SZ, 1>(FIRST_LINK);
-  linksMask = (followingOffsets.select<ECHUNK_SZ, 1>(0) == INFINITY | followingOffsets.select<ECHUNK_SZ, 1>(0) == 0);
+  followingOffsets = currentList.select<CHUNK_SZ, 1>(FIRST_LINK);
+  linksMask = (followingOffsets == INFINITY | followingOffsets == 0);
 
   read(skiplist, 0, (followingOffsets + FIRST_KEY), src1); // read min key of every following lists
-  src1.select<ECHUNK_SZ, 1>(0).merge(0, linksMask);
+  src1.merge(0, linksMask);
 
-  followingKeys.select<ECHUNK_SZ, 1>(0) = src1.select<ECHUNK_SZ, 1>(0);
+  followingKeys = src1;
+
   linksMask = (key >= followingKeys) & (followingKeys != 0);
   if (linksMask.any()) {
     // follow link
@@ -152,11 +151,10 @@ restart:
   }
   else {
     // key can be in current list
-    keysChunk = currentList.select<CHUNK_SZ, 1>(FIRST_KEY);
-    keys = currentList.select<ECHUNK_SZ, 1>(FIRST_KEY);
+    keys = currentList.select<CHUNK_SZ, 1>(FIRST_KEY);
   next_chunk_keys:
     keysMask = (keys == key);
-    if (keysMask.any()) {
+    if (keysMask.any() && keysMask[NEXT_CHUNK] != 1) {
       return true; // key found!
     }
     else {
@@ -164,70 +162,13 @@ restart:
         read(skiplist, nextChunkKeys * 4, currentList);
         if (key >= currentList[0]) { // right pos is in the next chunk continue with next chunk
           nextChunkKeys = currentList[NEXT_CHUNK];
-          keys = currentList.select<ECHUNK_SZ, 1>(0);
-          keysChunk = currentList.select<CHUNK_SZ, 1>(0);
+          keys = currentList.select<CHUNK_SZ, 1>(0);
           goto next_chunk_keys;
         }
       }
 
     }
   }
-  return false;
-}
-
-/**
-*
-* Searches for a key in the Skip List.
-*
-**/
-_GENX_ bool searchSIMD(SurfaceIndex skiplist, uint key) {
-  vector<uint, LIST_SZ> currentList;
-  vector<uint, CHUNK_SZ> linksChunk, keysChunk, followingOffsets, src1;
-  vector<ushort, ECHUNK_SZ> linksMask, keysMask;
-  vector<uint, ECHUNK_SZ> followingKeys, keys;
-  uint nextChunkLinks, nextChunkKeys, currentOffset = 0, rightPos;
-
-restart:
-  read(skiplist, currentOffset * 4, currentList);
-  nextChunkKeys = currentList[CHUNK_SZ + NEXT_CHUNK];
-  linksChunk = currentList.select<CHUNK_SZ, 1>(FIRST_LINK);
-  followingOffsets.select<ECHUNK_SZ, 1>(0) = currentList.select<ECHUNK_SZ, 1>(FIRST_LINK);
-  linksMask = (followingOffsets.select<ECHUNK_SZ, 1>(0) == INFINITY | followingOffsets.select<ECHUNK_SZ, 1>(0) == 0);
-
-  read(skiplist, 0, (followingOffsets + FIRST_KEY), src1); // read min key of every following lists
-  src1.select<ECHUNK_SZ, 1>(0).merge(0, linksMask);
-
-  followingKeys.select<ECHUNK_SZ, 1>(0) = src1.select<ECHUNK_SZ, 1>(0);
-  linksMask = (key >= followingKeys) & (followingKeys != 0);
-  SIMD_IF_BEGIN(linksMask.any()) {
-    // follow link
-    rightPos = cm_pack_mask(linksMask);
-    rightPos = WORD_SIZE - 1 - cm_fbh<uint>(rightPos);
-    currentOffset = followingOffsets[rightPos];
-    goto restart;
-  }
-  SIMD_ELSE {
-    // key can be in current list
-    keysChunk = currentList.select<CHUNK_SZ, 1>(FIRST_KEY);
-    keys = currentList.select<ECHUNK_SZ, 1>(FIRST_KEY);
-  next_chunk_keys:
-    keysMask = (keys == key);
-    SIMD_IF_BEGIN (keysMask.any()) {
-      return true; // key found!
-    }
-    SIMD_ELSE {
-      SIMD_IF_BEGIN (nextChunkKeys != 0 && nextChunkKeys % LIST_SZ == 0) {
-        read(skiplist, nextChunkKeys * 4, currentList);
-        SIMD_IF_BEGIN (key >= currentList[0]) { // right pos is in the next chunk continue with next chunk
-          nextChunkKeys = currentList[NEXT_CHUNK];
-          keys = currentList.select<ECHUNK_SZ, 1>(0);
-          keysChunk = currentList.select<CHUNK_SZ, 1>(0);
-          goto next_chunk_keys;
-        }SIMD_IF_END;
-      }SIMD_IF_END;
-
-    }SIMD_IF_END;
-  } SIMD_IF_END;
   return false;
 }
 
@@ -629,6 +570,10 @@ _GENX_MAIN_ void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, S
 _GENX_MAIN_ void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex reads, uint data_chunk) {
   vector<uint, 32> ret;
 
+  //read(DWALIGNED(skiplist), 0, ret);
+  //printf("%d %d %d %d", ret[0], ret[1], ret[2], ret[3]);
+  //return;
+
   uint keys = 0;
   vector<uint, 1> foundKeys = 0;
   unsigned short thread_id = get_thread_origin_x();
@@ -643,7 +588,9 @@ _GENX_MAIN_ void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, S
       if (ret[j] != 0 && search(skiplist, ret[j])) {
         foundKeys[0]++;
       }
+      //break;
     }
+    //break;
   }
   // printf("thread %d found %d\n", thread_id, foundKeys[0]);
    //vector<uint, 1> offset = 0;
