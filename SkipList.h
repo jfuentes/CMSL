@@ -7,14 +7,15 @@
 #define MAX_TS_WIDTH 1024
 #define WORD_SIZE 32
 #define INFINITY_SHIFT 30
+#define MARK_SHIFT 31
 
 // Skiplist parameters
-#define P_VALUE 40 // probability for level's height assignement 
-#define MAX_LEVEL 15
+#define P_VALUE 50 // probability for level's height assignement 
+#define MAX_LEVEL 31
 #define CHUNK_SZ 16
 #define ECHUNK_SZ 15
 #define LIST_SZ 32
-#define STACK_SZ 64
+#define STACK_SZ 256
 // indices
 #define NEXT_CHUNK 15
 #define FIRST_KEY 16

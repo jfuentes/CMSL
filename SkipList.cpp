@@ -40,6 +40,7 @@ using namespace std;
 
 using namespace std;
 unsigned int infinity = 1 << INFINITY_SHIFT;
+unsigned int offset_mask = (1 << MARK_SHIFT) - 1;
 
 void cmk_skiplist_insert(SurfaceIndex skiplist, SurfaceIndex data, SurfaceIndex idxNewNodes, unsigned int start, unsigned int end);
 void cmk_skiplist_search(SurfaceIndex skiplist, SurfaceIndex data, unsigned int start, unsigned int end);
@@ -113,44 +114,55 @@ void generateRandomKeys(int numKeys, string filename) {
   outputFile.close();
 }
 
+int getOffset(int v) {
+  return v & offset_mask;
+}
+
 void dumpSkiplist(uint32_t * dst_skiplist) {
   int count = 0;
-  //UINT maski = (1 << 29) - 1;
-  // UINT maski2 = (1 << 28) - 1;
   int nextOffset = 0, k = 0;
   while (nextOffset != infinity) {
-#if DEBUG_MODE
     printf("%d = [ ", nextOffset);
-#
-    for (UINT j = 0; j < 15; j++) {
-      if (dst_skiplist[nextOffset + j] == 0)
+    for (UINT j = 0; j < 16; j++) {
+      if (getOffset(dst_skiplist[nextOffset + j]) == 0)
         printf(" - ");
       else {
-        printf("%d ", dst_skiplist[nextOffset + j]);
+        if((dst_skiplist[nextOffset + j] >> MARK_SHIFT) == 0x1 )
+          printf("%d* ", getOffset(dst_skiplist[nextOffset + j]));
+        else
+          printf("%d ", getOffset(dst_skiplist[nextOffset + j]));
       }
     }
-    for (UINT j = 15; j < 16; j++) {
-      printf("%d ", dst_skiplist[nextOffset + j]);
-
-    }
     printf("|| ");
-#endif
 
+    if (getOffset(dst_skiplist[nextOffset + 15]) != 0) {
+      for (UINT j = 32; j < 45; j++) {
+        if (getOffset(dst_skiplist[nextOffset + j]) == 0)
+          printf(" - ");
+        else {
+          if (dst_skiplist[nextOffset + j] >> MARK_SHIFT)
+            printf("%d* ", getOffset(dst_skiplist[nextOffset + j]));
+          else
+            printf("%d ", getOffset(dst_skiplist[nextOffset + j]));
+        }
+      }
+      printf("|| ");
+    }
+    
 
     for (UINT j = 16; j < 31; j++) {
-#if DEBUG_MODE
       printf("%d ", dst_skiplist[nextOffset + j]);
-#endif
       if (dst_skiplist[nextOffset + j] != 0)
         count++;
     }
-#if DEBUG_MODE
+
     for (UINT j = 31; j < 32; j++) {
       printf("%d ", dst_skiplist[nextOffset + j]);
     }
     printf(" ]\n ");
-#endif
 
+
+#if 0
     std::stack<int> pila;
 
     int nextOffset2 = dst_skiplist[nextOffset + 31];
@@ -181,28 +193,31 @@ void dumpSkiplist(uint32_t * dst_skiplist) {
           pila.push(nextOffset3);
       }
     }
+#endif
 
-
-    nextOffset = (dst_skiplist[nextOffset]);
+    nextOffset = getOffset(dst_skiplist[nextOffset]);
   }
 
   printf("Total inserted keys = %d\n", count);
 
 }
 
-void insertTest(int numKeys, int numThreads, string filename, string skiplistFilename) {
+void insertTest(int numKeys, int numThreads, string filename, string skiplistFilename, int dump) {
   uint32_t *dst_skiplist;
   uint32_t *dst_lists;
   uint32_t *dst_reads;
   uint32_t *skiplist;
   uint32_t *data;
   uint32_t *idxNewLists;
-  uint32_t skiplistSize = numKeys * 17; // worst case (very high P_VALUE): 1 list per key
+  uint32_t skiplistSize = numKeys * 32; // worst case (very high P_VALUE): 1 list per key
   cout << "runTest " << numThreads << " " << numKeys << " " << skiplistSize << endl;
 
   skiplist = (uint32_t*)CM_ALIGNED_MALLOC((skiplistSize) * sizeof(uint32_t), 0x1000);
   memset(skiplist, 0, sizeof(uint32_t) * skiplistSize);
-  for (int i = 0; i <= LAST_ELEM; i++)
+  for (int i = 0; i < 16; i++)
+    skiplist[i] = infinity;
+
+  for (int i = 32; i < 48; i++)
     skiplist[i] = infinity;
 
   data = (uint32_t*)CM_ALIGNED_MALLOC(numKeys * sizeof(uint32_t), 0x1000);
@@ -275,7 +290,7 @@ void insertTest(int numKeys, int numThreads, string filename, string skiplistFil
   cm_result_check(dataBuf->WriteSurface((const unsigned char*)data, nullptr));
 
   CmBuffer*  newListsBuf = nullptr;
-  uint32_t newLists = 1;
+  uint32_t newLists = 3;
   cm_result_check(device->CreateBuffer(sizeof(unsigned int), newListsBuf));
   cm_result_check(newListsBuf->WriteSurface((const unsigned char*)&newLists, nullptr));
 
@@ -293,9 +308,10 @@ void insertTest(int numKeys, int numThreads, string filename, string skiplistFil
   cm_result_check(kernel->SetKernelArg(2, sizeof(SurfaceIndex), index2));
   unsigned data_chunk = (numKeys) / numThreads;
   cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
+  cm_result_check(kernel->SetKernelArg(4, sizeof(numKeys), &numKeys));
 
 
-  //device->InitPrintBuffer();
+  device->InitPrintBuffer();
 
   // Creates a thread space
   CmThreadSpace *thread_space = nullptr;
@@ -330,13 +346,13 @@ void insertTest(int numKeys, int numThreads, string filename, string skiplistFil
   cout << "Kernel time <Insertion>" << (executionTime / 1000000) << "ms" << endl;
   cout << "Program time <Insertion> " << (end - start) << "ms" << endl;
 
-  dumpSkiplist(dst_skiplist);
+  if(dump) dumpSkiplist(dst_skiplist);
   //cm_result_check(::DestroyCmDevice(device));
-  //device->FlushPrintBuffer();
+  device->FlushPrintBuffer();
   cm_result_check(device->DestroyThreadSpace(thread_space));
   cm_result_check(::DestroyCmDevice(device));
 
-#if 1
+#if 0
   // ==============   search    =====================
   CmDevice *device2 = nullptr;
   cm_result_check(::CreateCmDevice(device2, version));
@@ -375,6 +391,7 @@ void insertTest(int numKeys, int numThreads, string filename, string skiplistFil
   cm_result_check(kernel_search->SetKernelArg(1, sizeof(SurfaceIndex), index1_search));
   cm_result_check(kernel_search->SetKernelArg(2, sizeof(SurfaceIndex), index2_search));
   cm_result_check(kernel_search->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
+  cm_result_check(kernel_search->SetKernelArg(4, sizeof(numKeys), &numKeys));
   //device->InitPrintBuffer();
 
   // Create a task queue
@@ -515,6 +532,7 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
   cm_result_check(kernel->SetKernelArg(2, sizeof(SurfaceIndex), index2));
   unsigned data_chunk = (numKeys) / numThreads;
   cm_result_check(kernel->SetKernelArg(3, sizeof(data_chunk), &data_chunk));
+  cm_result_check(kernel->SetKernelArg(4, sizeof(numKeys), &numKeys));
 
   device->InitPrintBuffer();
 
@@ -564,21 +582,29 @@ void searchTest(int numKeys, int numThreads, std::string skiplistFilename, std::
 
 int main(int argc, char * argv[])
 {
-  if (argc != 5) {
-    cout << "Usage: SkiplistSearch [T] [N] [Keys_filename] [SL_filename]" << endl;
+  if (argc < 6) {
+    cout << "Usage: SkiplistSearch [T] [N] [operation] [Keys_filename] [SL_filename] [dump]" << endl;
     cout << "       T: number of threads" << endl;
     cout << "       N: number of keys to search" << endl;
+    cout << "       operation: 1=insert, 2=search" << endl;
     cout << "       Keys_filename: file with keys" << endl;
     cout << "       SL_filename: file with Skiplist structure" << endl;
+    cout << "       dump: 0=no, 1=yes (not recommended for large N)" << endl;
     exit(1);
   }
 
  
   int numThreads = atoi(argv[1]);
   int numKeys = atoi(argv[2]);
-  string keysFilename(argv[3]);
-  string skiplistFilename(argv[4]);
+  int op = atoi(argv[3]);
+  string keysFilename(argv[4]);
+  string skiplistFilename(argv[5]);
+  int dump = atoi(argv[6]);
   //generateRandomKeys(numKeys, keysFilename);
-  //insertTest(numKeys, numThreads, keysFilename, skiplistFilename);
-  searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
+  if (op == 1) {
+    insertTest(numKeys, numThreads, keysFilename, skiplistFilename, dump);
+  }
+  else if (op == 2) {
+    searchTest(numKeys, numThreads, skiplistFilename, keysFilename);
+  }
 }
